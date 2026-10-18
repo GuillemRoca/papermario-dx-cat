@@ -71,3 +71,8 @@ compile_commands.json
 # Star Rod map editor recovery copies
 map.crash.xml
 map.backup.xml
+
+# Catalan translation: reference text and CI scratch (TRANSLATION.md)
+/reference/
+/.ci/
+/dist/

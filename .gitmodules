@@ -1,0 +1,4 @@
+[submodule "translation"]
+	path = translation
+	url = ../papermario-catala.git
+	branch = main
