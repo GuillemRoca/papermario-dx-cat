@@ -1,0 +1,50 @@
+# Builds the Catalan ROM, lints the translation and uploads the .bps patch.
+# The work is in tools/translation/ci.sh, which runs the same way locally.
+#
+# Needs two repository secrets (TRANSLATION.md explains both):
+#   BASEROM_US_URL          a private download URL for the US ROM (.z64 or .zip)
+#   TRANSLATION_REPO_TOKEN  read access to the translation submodule's repository
+name: Translation
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tools/unix/download_toolchain.sh walks the history to find dx's toolchain
+          fetch-depth: 0
+          submodules: true
+          token: ${{ secrets.TRANSLATION_REPO_TOKEN || github.token }}
+
+      - name: Linter tests
+        run: python3 -m unittest tools/translation/test_lint.py
+
+      - name: Cache the toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .dx
+            .ci/flips
+          key: toolchain-${{ runner.os }}-${{ hashFiles('flake.lock', 'tools/unix/download_toolchain.sh') }}
+
+      - name: Build, lint and patch
+        env:
+          BASEROM_US_URL: ${{ secrets.BASEROM_US_URL }}
+          RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
+        run: tools/translation/ci.sh
+
+      - name: Upload the patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: papermario-catala-${{ github.sha }}
+          path: dist/
+          if-no-files-found: ignore

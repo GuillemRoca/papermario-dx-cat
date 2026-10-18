@@ -11,8 +11,10 @@
 # Asset layers, highest priority first, as directories from the root: a mod's
 # own assets, alongside its code in src; DX's changes to the base game; and
 # the base game's assets, split from the baserom.
+# translation/assets is the Catalan translation, a submodule (TRANSLATION.md).
 asset_stack:
   - src
+  - translation/assets
   - assets/dx
   - assets/us
 
