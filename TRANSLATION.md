@@ -2,7 +2,7 @@
 
 This fork builds Paper Mario in Catalan, released as a `.bps` patch for the US ROM. The
 translation itself (message files, glossary, translated images) lives in its own repository,
-[papermario-catala](https://github.com/GuillemRoca/papermario-catala), checked out here as the
+[papermario-cat](https://github.com/GuillemRoca/papermario-cat), checked out here as the
 `translation/` submodule. This repository holds the build, the linter and CI.
 
 Never commit a ROM, the split assets, or English or Spanish game text. `ver/us/baserom.z64`,
@@ -133,7 +133,7 @@ It needs two repository secrets, under Settings → Secrets and variables → Ac
   long-lived signed URL. Anyone who can read the secret can download the ROM, so don't use a
   public link. The SHA1 check rejects anything that isn't the right ROM.
 - **`TRANSLATION_REPO_TOKEN`**: a fine-grained personal access token with read-only Contents
-  access to papermario-catala, so CI can check out the private submodule. The default
+  access to papermario-cat, so CI can check out the private submodule. The default
   `GITHUB_TOKEN` only reaches this repository.
 
 With a self-hosted runner, you can instead keep the ROM on the runner and copy it to
