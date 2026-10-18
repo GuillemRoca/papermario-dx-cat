@@ -31,13 +31,14 @@ Vp D_8014C280 = {
 };
 
 #if !VERSION_JP
-MSG_BIN MessagePlural[] = { MSG_CHAR_LOWER_S, MSG_CHAR_READ_END };
+// Catalan: the text writes a feminine stem ("moned[Var 2]"), so plural adds "es" and singular "a".
+MSG_BIN MessagePlural[] = { MSG_CHAR_LOWER_E, MSG_CHAR_LOWER_S, MSG_CHAR_READ_END };
 
 #if VERSION_PAL
 MSG_BIN MessagePlural_de[] = { MSG_CHAR_LOWER_N, MSG_CHAR_READ_END };
 #endif
 
-MSG_BIN MessageSingular[] = { MSG_CHAR_READ_ENDL, MSG_CHAR_READ_END };
+MSG_BIN MessageSingular[] = { MSG_CHAR_LOWER_A, MSG_CHAR_READ_END };
 #endif
 
 #if VERSION_PAL

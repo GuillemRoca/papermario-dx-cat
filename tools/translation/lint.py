@@ -230,7 +230,12 @@ class Linter:
         if len(old_lines) != len(new_lines):
             return  # reported as a control code mismatch
 
-        if style in ("choice", "upgrade") and isinstance(named.get("size"), list):
+        if style == "choice" and isinstance(named.get("size"), list):
+            # Options start 26 px into the box (12 px margin + 14 px for the cursor, msg_draw.c);
+            # vanilla's tightest option ends 3 px before the right edge.
+            box = named["size"][0]
+            hard, comfort = box - 26, box - 29
+        elif style == "upgrade" and isinstance(named.get("size"), list):
             box = named["size"][0]
             hard, comfort = box - 16, box - 40
         else:

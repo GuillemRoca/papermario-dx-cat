@@ -4,13 +4,13 @@
 /// Creates the version string that appears on the file select menu.
 /// Also used to sign save files created with this mod.
 /// WARNING: name must not exceed 27 characters!
-#define DX_MOD_NAME "New Mod"
+#define DX_MOD_NAME "Paper Mario en catala"
 #define DX_MOD_VER_MAJOR 1 /// Increase this when you make breaking changes to the savefile format (like reordering items)
 #define DX_MOD_VER_MINOR 0 /// Increase this when adding new features or other enchancements
 #define DX_MOD_VER_PATCH 0 /// Increase this when fixing bugs
 
 /// Enables the debug menu.
-#define DX_DEBUG_MENU 1
+#define DX_DEBUG_MENU 0
 
 /// Adds focused EVT VM tests to the debug menu
 #define DX_DEBUG_EVT_TESTS 0
@@ -22,10 +22,10 @@
 #define DX_SKIP_LOGOS 0
 
 /// Skips the introductory storybook.
-#define DX_SKIP_STORY 1
+#define DX_SKIP_STORY 0
 
 /// Skips the demo reel playing while waiting for the player to 'Press Start'.
-#define DX_SKIP_DEMO 1
+#define DX_SKIP_DEMO 0
 
 /// Map to load when starting a new game.
 #define NEW_GAME_MAP_ID "kmr_20"
