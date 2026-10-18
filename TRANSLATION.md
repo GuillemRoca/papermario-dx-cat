@@ -27,9 +27,15 @@ Some text is C, not messages. These string tables are the only C this translatio
 | Pause menu labels | `src/pause/pause_gfx.c`, the `VERSION_US` tables |
 | The plural "s" for shops, Chuck Quizmo and the minigame | `MessagePlural` in `src/engine2/msg.c` |
 
-The tables are arrays of font codes; `tools/translation/msgtext.py` has the charset to encode
-them. They aren't portable to other ports the way message files are, so keep their Catalan in the
-glossary's UI terms too.
+The tables are arrays of font codes. `tools/translation/encode.py "Text"` prints an initializer
+and its width in pixels. Each string is drawn at a fixed position, so check the width against the
+space it has; `translation/notes/translator-notes.md` records the tight ones. Only edit the US
+tables (`#else` / `#elif VERSION_US`), never the PAL ones. They aren't portable to other ports the
+way message files are, so keep their Catalan in the glossary's UI terms too.
+
+The plural suffix stays "s" until 27_Shops and 08_Minigame are translated. Catalan needs "a" and
+"es" on a stem (`moned[Var 2]`), and switching it earlier would turn the English still in place
+into "1 coina".
 
 The credits use their own fonts, which have only uppercase A–Z, digits and `' . , & ©`. Credit
 headings and names are written in uppercase without accents.
