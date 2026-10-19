@@ -57,3 +57,22 @@ debug features.
       version in `.z64` format.
 - [ ] Put `src/dx/config.h` back to development settings on `main` if you want the debug menu
       again.
+
+## Release log
+
+### v1.0.0
+
+- `DX_MOD_NAME "Paper Mario en catala"`, version 1.0.0.
+- `DX_PAUSE_LAG_FIX 1`: kept DX's default. Most players use emulators, where the blur lags; on
+  hardware the pause menu just shows no blur behind it.
+- Debug menu, EVT tests, overlay logging and profiler off; logos, story and demo on; new game at
+  `kmr_20` with `STORY_INTRO`.
+- `lint.py --complete --strict --compile` with the pmret compiler too: 8009/8009 messages, 0
+  errors, 0 warnings. `ci.sh` passes with `RELEASE=1`.
+- The `.bps` applied to the US ROM (SHA1 `3837f44cda784b466c9a2d99df70d77c322b97a0`) gives a ROM
+  identical to the build.
+- Checked in n64js (headless, `/root/emu/shoot.py`): logos, storybook, title, file select, name
+  entry, new game, the castle party, the prologue in the Goomba region, the pause menu tabs.
+- Not checked in game: copy and delete on the file select, saving and loading, and most
+  translated images (battle, level up, chapter cards). See `translation/notes/translator-notes.md`,
+  "Things to check in game or decide".
