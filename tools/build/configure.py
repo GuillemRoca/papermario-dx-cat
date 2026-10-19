@@ -226,6 +226,16 @@ def posix(path) -> str:
     return str(path).replace("\\", "/")
 
 
+def asset_link_order(obj) -> Tuple[str, int]:
+    """Sort key for the asset objects in a segment: by path, with each palette
+    right after its image, as in the baserom. Code that reads an image and its
+    palette by offset depends on it, such as the storybook in hos_05/intro.c."""
+    path = posix(obj)
+    if path.endswith(".pal.o"):
+        return (path[: -len(".pal.o")] + ".png.o", 1)
+    return (path, 0)
+
+
 # Files a hand-authored asset layer may hold that no build rule reads.
 # Star Rod's map editor saves each map's markers and settings to features.json
 # beside the map's code, and keeps crash and backup copies of its source there.
@@ -1761,7 +1771,7 @@ class Configure:
         roots = (f"assets/{self.version}/", "src/", f"ver/{self.version}/")
         label = lambda obj: linker.data_label(obj, build_prefix, roots)
         assets = {
-            segment: [(posix(o), label(posix(o))) for o in sorted(objects, key=posix)]
+            segment: [(posix(o), label(posix(o))) for o in sorted(objects, key=asset_link_order)]
             for segment, objects in self.asset_objects.items()
         }
 

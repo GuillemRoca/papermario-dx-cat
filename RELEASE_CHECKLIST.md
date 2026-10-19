@@ -71,6 +71,10 @@ debug features.
   errors, 0 warnings. `ci.sh` passes with `RELEASE=1`.
 - The `.bps` applied to the US ROM (SHA1 `3837f44cda784b466c9a2d99df70d77c322b97a0`) gives a ROM
   identical to the build.
+- Fixed the storybook: the build linked each title image's palette before the image, so the
+  pages and Bowser's silhouette read garbage palettes (also on hardware). Asset objects now link
+  each palette right after its image, as in the baserom; the storybook data is byte-identical to
+  the baserom's.
 - Checked in n64js (headless, `/root/emu/shoot.py`): logos, storybook, title, file select, name
   entry, new game, the castle party, the prologue in the Goomba region, the pause menu tabs.
 - Not checked in game: copy and delete on the file select, saving and loading, and most
