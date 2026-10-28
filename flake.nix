@@ -7,11 +7,10 @@
 
     flake-utils.url = "github:numtide/flake-utils";
 
-    # Not `follows`-ed to our nixpkgs: tools/star-rod.nix rebuilds star-rod's
-    # jar using its own pinned nixpkgs/Gradle, since its offline dependency
-    # resolution (gradle/verification-metadata.xml) is pinned to that exact
-    # Gradle version.
-    star-rod.url = "git+https://tangled.org/starhaven.dev/star-rod?rev=e19ea873e24227a7f3bce02e3d6aa450a5554095";
+    # Not `follows`-ed to our nixpkgs: star-rod builds its jar with its own
+    # pinned nixpkgs/Gradle, since its offline dependency resolution
+    # (gradle/verification-metadata.xml) is pinned to that exact Gradle version.
+    star-rod.url = "git+https://tangled.org/starhaven.dev/star-rod?rev=488166b546f6731443505c057c5645b78b0396df";
   };
   nixConfig = {
     extra-substituters = [
@@ -35,7 +34,6 @@
         };
         pkgs = import nixpkgs { inherit system; };
         pkgsCross = import nixpkgs { inherit system crossSystem; };
-        binutils2_39 = (import nixpkgs-binutils-2_39 { inherit system crossSystem; }).buildPackages.binutilsNoLibc;
         baseRom = pkgs.requireFile {
           name = "papermario.us.z64";
           message = ''
@@ -59,19 +57,14 @@
           '';
           sha256 = "9ec6d2a5c2fca81ab86312328779fd042b5f3b920bf65df9f6b87b376883cb5b";
         };
-        # Plain platform-independent bytecode; rebuilt per-system (like the
-        # rest of the toolchain) rather than cross-referencing a single
-        # build, since CI's aarch64-darwin runner can't build/substitute an
-        # x86_64-linux derivation.
-        starRodJar = import ./tools/star-rod.nix { starRod = star-rod; inherit system; };
+        # Built for this system, so building any of the toolchains here never
+        # needs another system's build or a cache that has it.
+        starRodJar = star-rod.packages.${system}.jar;
 
         windowsToolchain = import ./tools/windows {
-          inherit pkgs nixpkgs-binutils-2_39 baseRom llvmVersion;
+          inherit pkgs nixpkgs-binutils-2_39 baseRom llvmVersion starRodJar;
           mipsCrossGcc = pkgsCross.stdenv.cc;
           src = self;
-          # Windows-toolchain is only ever built from the x86_64-linux branch
-          # below, so this is always that same system's starRodJar.
-          inherit starRodJar;
         };
         pythonDeps = windowsToolchain.passthru.pythonDeps;
 
@@ -92,14 +85,15 @@
           exec ${pkgs.jdk17}/bin/java -cp ${starRodJar}/share/java/StarRod.jar app.StarRodMain "$@"
         '';
 
-        unixToolchain = import ./tools/unix {
+        unixToolchainWith = starRodJar: import ./tools/unix {
           inherit pkgs nixpkgs-binutils-2_39 mipsGdb starRodJar llvmTools;
           mipsCrossGcc = pkgsCross.stdenv.cc;
         };
+        unixToolchain = unixToolchainWith starRodJar;
+        # The toolchain's own compiler and binutils, so every build of the game uses the same ones.
+        mipsTools = [ unixToolchain.passthru.mips-gcc unixToolchain.passthru.mips-binutils ];
         linuxRom = pkgs.runCommand "papermario-linux-rom" {
-          nativeBuildInputs = [
-            pkgsCross.stdenv.cc
-            binutils2_39
+          nativeBuildInputs = mipsTools ++ [
             pkgs.python3
             pkgs.python3Packages.pip
             pkgs.python3Packages.virtualenv
@@ -113,10 +107,6 @@
             evtValidatePkg
             starRodPkg
           ] ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.flips;
-          # Disable nixpkgs hardening flags (zerocallusedregs, fortify, etc.)
-          # that the cross-compiler wrapper injects. The build system manages
-          # its own flags and we want output identical to the Windows toolchain.
-          NIX_HARDENING_ENABLE = "";
         } ''
           cp -r --no-preserve=mode ${self} build
           chmod -R u+w build
@@ -130,7 +120,6 @@
           source venv/bin/activate
           pip install --no-index --find-links=${pythonDeps} -r tools/requirements.txt --quiet
 
-          export PAPERMARIO_LD="${binutils2_39}/bin/mips-linux-gnu-ld"
           python3 tools/build/configure.py --no-sccache
           ninja
 
@@ -150,9 +139,7 @@
           then pkgs.callPackage ./tools/clangd.nix { version = llvmVersion; archive = "clangd_indexing_tools"; }
           else clangdIndexer;
         clangdIndex = pkgs.runCommand "papermario-dx-clangd-index" {
-          nativeBuildInputs = [
-            pkgsCross.stdenv.cc
-            binutils2_39
+          nativeBuildInputs = mipsTools ++ [
             pkgs.python3
             pkgs.python3Packages.pip
             pkgs.python3Packages.virtualenv
@@ -167,7 +154,6 @@
             starRodPkg
             clangdIndexingTools
           ];
-          NIX_HARDENING_ENABLE = "";
         } ''
           cp -r --no-preserve=mode ${self} build
           chmod -R u+w build
@@ -181,7 +167,6 @@
           source venv/bin/activate
           pip install --no-index --find-links=${pythonDeps} -r tools/requirements.txt --quiet
 
-          export PAPERMARIO_LD="${binutils2_39}/bin/mips-linux-gnu-ld"
           python3 tools/build/configure.py --no-sccache
           ninja
 
@@ -212,6 +197,10 @@
           macos-x86_64-toolchain = macosToolchain "x86_64";
           macos-aarch64-gcc = (macosToolchain "aarch64").passthru.mips-gcc;
         } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          # The x86_64 toolchain that's published, which CI builds on an
+          # aarch64-linux host. The jar is the same bytecode on every system,
+          # so the aarch64 one spares compiling it under emulation.
+          unix-toolchain-with-aarch64-jar = unixToolchainWith star-rod.packages.aarch64-linux.jar;
           windows-rom = windowsToolchain.passthru.wineRom;
         };
 
@@ -229,14 +218,10 @@
           '';
         };
 
-        devShells.default = pkgsCross.mkShell {
+        devShells.default = pkgs.mkShell {
           name = "papermario-dx";
           venvDir = "./venv";
-          # Disable nixpkgs hardening flags (stackprotector, fortify, pic, etc.)
-          # that the cross-compiler wrapper injects. These change MIPS code
-          # generation and would cause Linux builds to differ from Windows.
-          NIX_HARDENING_ENABLE = "";
-          packages = with pkgs; [
+          packages = mipsTools ++ (with pkgs; [
             ninja
             zlib
             libyaml
@@ -252,11 +237,9 @@
             starRodPkg
             llvmTools
             treefmt
-          ] ++ [ mipsGdb ] ++ (if pkgs.stdenv.isLinux then [ pkgs.flips ] else []); # https://github.com/NixOS/nixpkgs/issues/373508
+          ]) ++ [ mipsGdb ] ++ (if pkgs.stdenv.isLinux then [ pkgs.flips ] else []); # https://github.com/NixOS/nixpkgs/issues/373508
           shellHook = ''
             rm -f ./ver/us/baserom.z64 && cp ${baseRom} ./ver/us/baserom.z64
-            export PAPERMARIO_LD="${binutils2_39}/bin/mips-linux-gnu-ld"
-
             export SCCACHE_CONF="$PWD/.dx/sccache-config.toml"
             export AWS_SHARED_CREDENTIALS_FILE="$PWD/.dx/sccache-credentials"
             export SCCACHE_BASEDIRS="$PWD"
@@ -264,20 +247,12 @@
 
             virtualenv venv --quiet
             source venv/bin/activate
-            # This shell's CC is the MIPS o32 cross-compiler (for the game
-            # itself), not a host compiler. pip normally never notices,
-            # since it only needs one to build pygfxd's C extension from
-            # source - but that means whenever it does, it silently uses
-            # the cross-compiler and produces a 32-bit MIPS .so that the
-            # host Python can't load. Point it at a real host compiler for
-            # this one install so a from-source build is possible at all.
-            #
-            # pygfxd also has no manylinux aarch64 wheel on PyPI (only
+            # pygfxd has no manylinux aarch64 wheel on PyPI (only
             # x86_64), so on that platform pip would otherwise silently
             # install the incompatible x86_64 build; force a source build
             # there. Elsewhere the prebuilt wheel is already correct and
             # faster to install.
-            CC=${pkgs.stdenv.cc}/bin/cc pip install ${
+            pip install ${
               pkgs.lib.optionalString (pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isAarch64)
                 "--no-binary pygfxd"
             } -r ${./tools/requirements.txt} --quiet

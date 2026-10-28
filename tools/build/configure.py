@@ -41,12 +41,6 @@ CONFIGURE_MODULES = [
     "segments.py",
 ]
 
-# These extractors emit C included by multiple independently linked maps.
-COMMON_GRAPHICS_GENERATORS = [
-    Path("tools/splat_ext/gfx_common.py"),
-    Path("tools/splat_ext/vtx_common.py"),
-]
-
 # Configuration:
 VERSIONS = ["us"]
 
@@ -278,7 +272,6 @@ def splat_extension_paths() -> List[Path]:
 def configure_input_paths(versions: List[str]) -> List[str]:
     """Every file configure reads to decide what build.ninja should contain."""
     paths = [posix(BUILD_TOOLS / module) for module in CONFIGURE_MODULES]
-    paths.extend(posix(path) for path in COMMON_GRAPHICS_GENERATORS)
     paths.extend(posix(path) for path in splat_extension_paths())
     for version in versions:
         paths.append(f"ver/{version}/layout.yaml")
@@ -634,6 +627,12 @@ def write_ninja_rules(
     )
 
     ninja.rule(
+        "tex_pool",
+        description="Building the texture pool",
+        command=f"$python {BUILD_TOOLS}/tex_pool.py $out $header_path $asset_stack",
+    )
+
+    ninja.rule(
         "move_data",
         description="Generating move data",
         command=f"$python {BUILD_TOOLS}/move_data.py $out $in",
@@ -690,12 +689,6 @@ def write_ninja_rules(
         command=f"$python {BUILD_TOOLS}/mapfs/combine.py vanilla $out $out.rsp",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
-    )
-
-    ninja.rule(
-        "tex",
-        description="Building texture $tex_name",
-        command=f"$python {BUILD_TOOLS}/mapfs/tex.py $out $tex_name $asset_stack",
     )
 
     ninja.rule(
@@ -762,21 +755,6 @@ def write_ninja_rules(
         depfile="$out_dir/audio.d",
         deps="gcc",
         restat=True,
-    )
-
-    ninja.rule(
-        "check_audio",
-        description="Verifying audio against the baserom",
-        command=f'$python {BUILD_TOOLS}/verify_audio.py "{star_rod()}" $splat $baserom $in $out',
-    )
-
-    ninja.rule(
-        "check_debug_music",
-        description="Testing the debug music catalog and browser",
-        command=(
-            "$python tools/test/debug_music_catalog.py && "
-            '$python tools/test/debug_music_browser.py --include-dir "$include_dir" $vanilla'
-        ),
     )
 
     ninja.rule(
@@ -956,25 +934,6 @@ class Configure:
         (dumped / ".star_rod_extracted").touch()
         shutil.rmtree(dumped / "mapfs" / "geom")
         self.maps_dump_stamp().write_text(star_rod_version())
-
-    def refresh_common_graphics(self) -> None:
-        """Refresh extracted common graphics when their C generator changes."""
-        stamp = self.build_path() / "common_graphics_dumped.stamp"
-        generators = [ROOT / path for path in COMMON_GRAPHICS_GENERATORS]
-        if stamp.exists() and all(
-            path.stat().st_mtime_ns <= stamp.stat().st_mtime_ns for path in generators
-        ):
-            return
-        import splat.scripts.split as split
-
-        # Only the common subclasses should be re-extracted. Splat's cache
-        # checks their generator version; scanning needs the parent modes too.
-        split.main(
-            [self.version_path / "splat.yaml"],
-            ["gfx", "vtx", "gfx_common", "vtx_common"],
-            verbose=False,
-        )
-        stamp.touch()
 
     @staticmethod
     def source_relative_path(path: Path) -> Union[Path, None]:
@@ -1170,10 +1129,21 @@ class Configure:
         packed(
             "icons.bin",
             "icons",
-            [version_assets / "icon/Icons.xml"],
+            [],
             variables={"header_path": icon_header, "asset_stack": asset_stack},
             implicit_outputs=[icon_header],
-            asset_deps=["icon"],
+            implicit_deps=self.layer_tree("icon"),
+        )
+
+        tex_pool_header = posix(self.build_path() / "include" / "tex_pool_table.h")
+        packed(
+            "tex_pool.bin",
+            "tex_pool",
+            [],
+            variables={"header_path": tex_pool_header, "asset_stack": asset_stack},
+            implicit_outputs=[tex_pool_header],
+            implicit_deps=self.layer_tree("mapfs/tex")
+            + [posix(BUILD_TOOLS / "tex_pool.py"), "tools/splat_ext/tex_archives.py"],
         )
 
         shading_header = posix(
@@ -1187,15 +1157,7 @@ class Configure:
             implicit_outputs=[shading_header],
         )
 
-        # Adding a file or directory changes a directory's mtime, which audio.d
-        # can't list ahead of time, so every one under audio/ is a dependency.
         audio_dir = self.build_path() / "include" / "audio"
-        audio_sources = [
-            posix(path)
-            for layer in self.asset_stack
-            for path in [Path(layer) / "audio", *(Path(layer) / "audio").glob("**/*")]
-            if path.exists()
-        ]
         audio_sbn = audio_dir / "audio.sbn"
         build(
             audio_sbn,
@@ -1205,7 +1167,7 @@ class Configure:
             implicit_outputs=[
                 posix(audio_dir / header) for header in ["song_ids.h", "ambient_ids.h", "sound_ids.h", "audio_config.h"]
             ],
-            implicit_deps=audio_sources,
+            implicit_deps=self.layer_tree("audio"),
         )
         build(
             audio_dir / "debug_music_catalog.h",
@@ -1216,32 +1178,6 @@ class Configure:
         audio_obj = self.build_path() / version_assets / "audio.sbn.o"
         build(audio_obj, [audio_sbn], "bin")
         self.register_asset(audio_obj)
-        build(
-            self.build_path() / "audio_verified.stamp",
-            [audio_sbn],
-            "check_audio",
-            variables={
-                "splat": posix(self.version_path / "splat.yaml"),
-                "baserom": posix(self.baserom_path()),
-            },
-        )
-        # These test targets deliberately produce no file, so each invocation
-        # recompiles the host harness against the current production sources.
-        # Keep native compiler/sanitizer requirements out of normal ROM builds.
-        for target, vanilla in [("test_debug_music", ""), ("verify_debug_music", "--vanilla")]:
-            ninja.build(
-                target,
-                "check_debug_music",
-                order_only=["generated_code_" + self.version],
-                variables={"include_dir": posix(audio_dir.parent), "vanilla": vanilla},
-            )
-        # Only an unmodified build's audio matches the baserom's. CI invokes
-        # this target, including the browser tests with vanilla catalog checks.
-        ninja.build(
-            "verify_audio",
-            "phony",
-            [posix(self.build_path() / "audio_verified.stamp"), "verify_debug_music"],
-        )
 
         # Each animation is reached by name from a table in the engine, so the
         # order these are emitted in only decides where they sit.
@@ -1375,7 +1311,6 @@ class Configure:
         for name in self.map_sources():
             contents.append(self.map_build_dir() / f"{name}_shape.bin")
             contents.append(self.map_build_dir() / f"{name}_hit.bin")
-        contents += [mapfs / "tex" / f"{n[:-5]}.bin" for n in names("tex", "*_tex.json")]
         contents += [mapfs / "bg" / n for n in names("bg", "*_bg.png")]
         contents.append(mapfs / "title_data.bin")
         contents += [mapfs / "party" / n for n in names("party", "*.png")]
@@ -1593,19 +1528,6 @@ class Configure:
                     implicit_deps=sorted(
                         (ROOT / path.parent).glob(path.name.split(".")[0] + ".*.png")
                     ),
-                )
-            elif name.endswith("_tex"):
-                compress = False
-                tex_dir = path.parent / name
-                build(
-                    bin_path,
-                    [tex_dir, path.parent / (name + ".json")],
-                    "tex",
-                    variables={
-                        "tex_name": name,
-                        "asset_stack": ",".join(self.asset_stack),
-                    },
-                    asset_deps=[f"mapfs/tex/{name}"],
                 )
             elif name.endswith("_shape"):
                 compress = True
@@ -1884,6 +1806,19 @@ class Configure:
                     out.append(posix(path))
 
         return out
+
+    def layer_tree(self, directory: str) -> List[str]:
+        """A directory and everything under it, in every layer.
+
+        Adding or removing a file changes its directory's mtime, so a packer
+        that finds its inputs by looking depends on every directory too.
+        """
+        return [
+            posix(path)
+            for layer in self.asset_stack
+            for path in [Path(layer) / directory, *(Path(layer) / directory).glob("**/*")]
+            if path.exists()
+        ]
 
     # Given a directory within an asset layer, return a list of all assets in the
     # directory for all layers of the asset stack
@@ -2201,7 +2136,8 @@ class Configure:
             "item_data",
             implicit_deps=[
                 BUILD_TOOLS / "item_data.py",
-                self.find_asset("icon/Icons.xml"),
+                BUILD_TOOLS / "icons.py",
+                self.build_path() / "include/icon_offsets.h",
             ],
             variables={
                 "asset_stack": ",".join(self.asset_stack),
@@ -3004,8 +2940,6 @@ if __name__ == "__main__":
                 configure.dump_maps()
             if not configure.audio_dump_stamp().exists() or configure.audio_dump_stamp().read_text() != version:
                 configure.dump_audio()
-        if not args.no_split_assets:
-            configure.refresh_common_graphics()
         configure.check_names()
         evt_validation_stamps.extend(
             configure.write_ninja(

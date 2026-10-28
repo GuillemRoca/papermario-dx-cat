@@ -6,6 +6,7 @@
 #include "model_clear_render_tasks.h"
 #include "nu/nusys.h"
 #include "qsort.h"
+#include "dx/texture_pool.h"
 #include <string.h>
 
 // models are rendered in two stages by the RDP:
@@ -99,14 +100,9 @@ enum {
     RENDER_TASK_LIST_FAR, // dist >= 3M
 };
 
-#define WORLD_TEXTURE_MEMORY_SIZE 0x20000
-#define BATTLE_TEXTURE_MEMORY_SIZE 0x8000
-
 u8* gBackgroundTintModePtr; // NOTE: the type for this u8 is TintMode, as shown in SetModelTintMode
 ModelList* gCurrentModels;
 ModelTreeInfoList* gCurrentModelTreeNodeInfo;
-
-extern Addr TextureHeap;
 
 typedef struct FogSettings {
     /* 0x00 */ s32 enabled;
@@ -563,7 +559,10 @@ Gfx AlphaTestCombineModes[][5] = {
     },
 };
 
-void* TextureHeapBase = (void*) &TextureHeap;
+void* TextureHeapBase = (void*) TextureHeap;
+
+// Where a battle stage's textures start in the texture heap, from the layout.
+extern char battle_textures_CLASS_VRAM[];
 
 u8 ShroudTintAmt = 0;
 u8 ShroudTintR = 0;
@@ -1311,8 +1310,6 @@ ModelNode** gCurrentModelTreeRoot;
 ModelTransformGroupList* gCurrentTransformGroups;
 ModelCustomGfxList* gCurrentCustomModelGfxPtr;
 
-BSS TextureHeader gCurrentTextureHeader ALIGNED(16);
-
 BSS ModelList wModelList;
 BSS ModelList bModelList;
 
@@ -1356,6 +1353,11 @@ BSS s32 RenderTaskCount[NUM_RENDER_TASK_LISTS];
 
 TextureHandle TextureHandles[128];
 
+// The next free texture handle. Handle 0 means a model has no texture.
+BSS s32 NextTextureHandleIdx;
+// The index in the texture pool of the texture each texture handle holds.
+BSS s16 TextureHandlePoolIndices[ARRAY_COUNT(TextureHandles)];
+
 extern Addr BattleEntityHeapBottom; // todo ???
 
 void func_80117D00(Model* model);
@@ -1366,6 +1368,7 @@ void make_texture_gfx(
     TextureHeader*, Gfx**, IMG_PTR raster, PAL_PTR palette, IMG_PTR auxRaster, PAL_PTR auxPalette, u8, u8, u16, u16
 );
 void load_model_transforms(ModelNode* model, ModelNode* parent, Matrix4f mdlTxMtx, s32 treeDepth);
+s32 tex_pool_variant_handle(s32 handleIdx, s32 variation);
 s32 is_identity_fixed_mtx(Mtx* mtx);
 void build_custom_gfx(void);
 
@@ -1396,7 +1399,7 @@ void appendGfx_model(void* data) {
     modelNode = model->modelNode;
 
     if (model->textureID != 0) {
-        textureHandle = &TextureHandles[model->textureID + model->textureVariation];
+        textureHandle = &TextureHandles[tex_pool_variant_handle(model->textureID, model->textureVariation)];
         textureHeader = &textureHandle->header;
 
         if (textureHandle->gfx != nullptr) {
@@ -2028,290 +2031,83 @@ void appendGfx_model(void* data) {
     gDPPipeSync((*gfxPos)++);
 }
 
-void load_texture_impl(
-    u32 romOffset, TextureHandle* handle, TextureHeader* header, s32 mainSize, s32 mainPalSize, s32 auxSize,
-    s32 auxPalSize
-) {
-    Gfx** temp;
+// Sizes of the main image, its palette, the aux image, and its palette that follow a texture header.
+static void
+get_texture_sizes(TextureHeader* header, u32* rasterSize, u32* paletteSize, u32* auxRasterSize, u32* auxPaletteSize) {
+    *rasterSize = header->mainW * header->mainH;
 
-    // load main img + palette to texture heap
-    handle->raster = (IMG_PTR) TextureHeapPos;
-    if (mainPalSize != 0) {
-        handle->palette = (PAL_PTR) (TextureHeapPos + mainSize);
+    // compute mipmaps size
+    if (header->mainBitDepth == G_IM_SIZ_4b) {
+        if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
+            s32 d = 2;
+            while (header->mainW / d >= 16 && header->mainH / d > 0) {
+                *rasterSize += header->mainW / d * header->mainH / d;
+                d *= 2;
+            }
+        }
+        *rasterSize /= 2;
+    } else if (header->mainBitDepth == G_IM_SIZ_8b) {
+        if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
+            s32 d = 2;
+            while (header->mainW / d >= 8 && header->mainH / d > 0) {
+                *rasterSize += header->mainW / d * header->mainH / d;
+                d *= 2;
+            }
+        }
+    } else if (header->mainBitDepth == G_IM_SIZ_16b) {
+        if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
+            s32 d = 2;
+            while (header->mainW / d >= 4 && header->mainH / d > 0) {
+                *rasterSize += header->mainW / d * header->mainH / d;
+                d *= 2;
+            }
+        }
+        *rasterSize *= 2;
+    } else if (header->mainBitDepth == G_IM_SIZ_32b) {
+        if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
+            s32 d = 2;
+            while (header->mainW / d >= 2 && header->mainH / d > 0) {
+                *rasterSize += header->mainW / d * header->mainH / d;
+                d *= 2;
+            }
+        }
+        *rasterSize *= 4;
+    }
+
+    // compute palette size
+    if (header->mainFmt == G_IM_FMT_CI) {
+        *paletteSize = 0x20;
+        if (header->mainBitDepth == G_IM_SIZ_8b) {
+            *paletteSize = 0x200;
+        }
     } else {
-        handle->palette = nullptr;
+        *paletteSize = 0;
     }
-    dma_copy((u8*) romOffset, (u8*) (romOffset + mainSize + mainPalSize), TextureHeapPos);
-    romOffset += mainSize + mainPalSize;
-    TextureHeapPos += mainSize + mainPalSize;
 
-    // load aux img + palette to texture heap
-    if (auxSize != 0) {
-        handle->auxRaster = (IMG_PTR) TextureHeapPos;
-        if (auxPalSize != 0) {
-            handle->auxPalette = (PAL_PTR) (TextureHeapPos + auxSize);
+    // compute aux tile size
+    if (header->extraTiles == EXTRA_TILE_AUX_INDEPENDENT) {
+        *auxRasterSize = header->auxW * header->auxH;
+        if (header->auxBitDepth == G_IM_SIZ_4b) {
+            *auxRasterSize /= 2;
+        } else if (header->auxBitDepth == G_IM_SIZ_8b) {
+        } else if (header->auxBitDepth == G_IM_SIZ_16b) {
+            *auxRasterSize *= 2;
         } else {
-            handle->auxPalette = nullptr;
+            if (header->auxBitDepth == G_IM_SIZ_32b) {
+                *auxRasterSize *= 4;
+            }
         }
-        dma_copy((u8*) romOffset, (u8*) (romOffset + auxSize + auxPalSize), TextureHeapPos);
-        TextureHeapPos += auxSize + auxPalSize;
+        if (header->auxFmt == G_IM_FMT_CI) {
+            *auxPaletteSize = 0x20;
+            if (header->auxBitDepth == G_IM_SIZ_8b) {
+                *auxPaletteSize = 0x200;
+            }
+        } else {
+            *auxPaletteSize = 0;
+        }
     } else {
-        handle->auxPalette = nullptr;
-        handle->auxRaster = nullptr;
-    }
-
-    // copy header data and create a display list for the texture
-    handle->gfx = (Gfx*) TextureHeapPos;
-    memcpy(&handle->header, header, sizeof(*header));
-    make_texture_gfx(
-        header, (Gfx**) &TextureHeapPos, handle->raster, handle->palette, handle->auxRaster, handle->auxPalette, 0, 0,
-        0, 0
-    );
-
-    temp = (Gfx**) &TextureHeapPos;
-    gSPEndDisplayList((*temp)++);
-}
-
-void load_texture_by_name(ModelNodeProperty* propertyName, s32 romOffset, s32 size) {
-    char* textureName = (char*) propertyName->data.p;
-    u32 startOffset = romOffset;
-    s32 textureIdx = 0;
-    u32 paletteSize = 0;
-    u32 rasterSize = 0;
-    u32 auxPaletteSize = 0;
-    u32 auxRasterSize = 0;
-    TextureHeader* header;
-    TextureHandle* textureHandle;
-    s32 mainSize;
-
-    if (textureName == nullptr) {
-        (*gCurrentModelTreeNodeInfo)[TreeIterPos].textureID = 0;
-        return;
-    }
-
-    while (romOffset < startOffset + size) {
-        dma_copy((u8*) romOffset, (u8*) romOffset + sizeof(gCurrentTextureHeader), &gCurrentTextureHeader);
-        header = &gCurrentTextureHeader;
-
-        rasterSize = header->mainW * header->mainH;
-
-        // compute mipmaps size
-        if (header->mainBitDepth == G_IM_SIZ_4b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 16 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-            rasterSize /= 2;
-        } else if (header->mainBitDepth == G_IM_SIZ_8b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 8 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-        } else if (header->mainBitDepth == G_IM_SIZ_16b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 4 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-            rasterSize *= 2;
-        } else if (header->mainBitDepth == G_IM_SIZ_32b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 2 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-            rasterSize *= 4;
-        }
-
-        // compute palette size
-        if (header->mainFmt == G_IM_FMT_CI) {
-            paletteSize = 0x20;
-            if (header->mainBitDepth == G_IM_SIZ_8b) {
-                paletteSize = 0x200;
-            }
-        } else {
-            paletteSize = 0;
-        }
-
-        // compute aux tile size
-        if (header->extraTiles == EXTRA_TILE_AUX_INDEPENDENT) {
-            auxRasterSize = header->auxW * header->auxH;
-            if (header->auxBitDepth == G_IM_SIZ_4b) {
-                auxRasterSize /= 2;
-            } else if (header->auxBitDepth == G_IM_SIZ_8b) {
-            } else if (header->auxBitDepth == G_IM_SIZ_16b) {
-                auxRasterSize *= 2;
-            } else {
-                if (header->auxBitDepth == G_IM_SIZ_32b) {
-                    auxRasterSize *= 4;
-                }
-            }
-            if (header->auxFmt == G_IM_FMT_CI) {
-                auxPaletteSize = 0x20;
-                if (header->auxBitDepth == G_IM_SIZ_8b) {
-                    auxPaletteSize = 0x200;
-                }
-            } else {
-                auxPaletteSize = 0;
-            }
-        } else {
-            auxPaletteSize = 0;
-            auxRasterSize = 0;
-        }
-
-        if (strcmp(textureName, header->name) == 0) {
-            // found the texture with `textureName`
-            break;
-        }
-
-        textureIdx++;
-        mainSize = rasterSize + paletteSize + sizeof(*header);
-        romOffset += mainSize;
-        romOffset += auxRasterSize + auxPaletteSize;
-    }
-
-    if (romOffset >= startOffset + size) {
-        // did not find the texture with `textureName`
-        printf("could not find texture '%s'\n", textureName);
-        (*gCurrentModelTreeNodeInfo)[TreeIterPos].textureID = 0;
-        return;
-    }
-
-    (*gCurrentModelTreeNodeInfo)[TreeIterPos].textureID = textureIdx + 1;
-    textureHandle = &TextureHandles[(*gCurrentModelTreeNodeInfo)[TreeIterPos].textureID];
-    romOffset += sizeof(*header);
-
-    if (textureHandle->gfx == nullptr) {
-        load_texture_impl(romOffset, textureHandle, header, rasterSize, paletteSize, auxRasterSize, auxPaletteSize);
-        load_texture_variants(
-            romOffset + rasterSize + paletteSize + auxRasterSize + auxPaletteSize,
-            (*gCurrentModelTreeNodeInfo)[TreeIterPos].textureID, startOffset, size
-        );
-    }
-}
-
-// loads variations for current texture by looping through the following textures until a non-variant is found
-void load_texture_variants(u32 romOffset, s32 textureID, s32 baseOffset, s32 size) {
-    u32 offset;
-    TextureHeader iterTextureHeader;
-    TextureHeader* header;
-    TextureHandle* textureHandle;
-    u32 rasterSize;
-    s32 paletteSize;
-    u32 auxRasterSize;
-    u32 auxPaletteSize;
-    s32 mainSize;
-    s32 currentTextureID = textureID;
-
-    for (offset = romOffset; offset < baseOffset + size;) {
-        dma_copy((u8*) offset, (u8*) offset + sizeof(iterTextureHeader), &iterTextureHeader);
-        header = &iterTextureHeader;
-
-        if (strcmp(header->name, "end_of_textures") == 0) {
-            return;
-        }
-
-        if (!header->isVariant) {
-            // done reading variants
-            break;
-        }
-
-        rasterSize = header->mainW * header->mainH;
-
-        // compute mipmaps size
-        if (header->mainBitDepth == G_IM_SIZ_4b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 16 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-            rasterSize /= 2;
-        } else if (header->mainBitDepth == G_IM_SIZ_8b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 8 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-        } else if (header->mainBitDepth == G_IM_SIZ_16b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 4 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-            rasterSize *= 2;
-        } else if (header->mainBitDepth == G_IM_SIZ_32b) {
-            if (header->extraTiles == EXTRA_TILE_MIPMAPS) {
-                s32 d = 2;
-                while (header->mainW / d >= 2 && header->mainH / d > 0) {
-                    rasterSize += header->mainW / d * header->mainH / d;
-                    d *= 2;
-                }
-            }
-            rasterSize *= 4;
-        }
-
-        // compute palette size
-        if (header->mainFmt == G_IM_FMT_CI) {
-            paletteSize = 0x20;
-            if (header->mainBitDepth == G_IM_SIZ_8b) {
-                paletteSize = 0x200;
-            }
-        } else {
-            paletteSize = 0;
-        }
-
-        // compute aux tile size
-        if (header->extraTiles == EXTRA_TILE_AUX_INDEPENDENT) {
-            auxRasterSize = header->auxW * header->auxH;
-            if (header->auxBitDepth == G_IM_SIZ_4b) {
-                auxRasterSize /= 2;
-            } else if (header->auxBitDepth == G_IM_SIZ_8b) {
-            } else if (header->auxBitDepth == G_IM_SIZ_16b) {
-                auxRasterSize *= 2;
-            } else {
-                if (header->auxBitDepth == G_IM_SIZ_32b) {
-                    auxRasterSize *= 4;
-                }
-            }
-            if (header->auxFmt == G_IM_FMT_CI) {
-                auxPaletteSize = 0x20;
-                if (header->auxBitDepth == G_IM_SIZ_8b) {
-                    auxPaletteSize = 0x200;
-                }
-            } else {
-                auxPaletteSize = 0;
-            }
-        } else {
-            auxPaletteSize = 0;
-            auxRasterSize = 0;
-        }
-
-        textureID++;
-        currentTextureID = textureID;
-        textureHandle = &TextureHandles[currentTextureID];
-        load_texture_impl(
-            offset + sizeof(*header), textureHandle, header, rasterSize, paletteSize, auxRasterSize, auxPaletteSize
-        );
-
-        mainSize = rasterSize + paletteSize + sizeof(*header);
-        offset += mainSize;
-        offset += auxRasterSize + auxPaletteSize;
+        *auxPaletteSize = 0;
+        *auxRasterSize = 0;
     }
 }
 
@@ -2328,8 +2124,104 @@ ModelNodeProperty* get_model_property(ModelNode* node, ModelPropertyKeys key) {
     return nullptr;
 }
 
+// Loads a texture from the texture pool, which holds every map's textures, and returns its handle. A texture loads
+// once, and every model that uses it shares its handle.
+static s32 tex_pool_load_entry(s32 poolIdx) {
+    const TexPoolEntry* entry = &gTexturePoolEntries[poolIdx];
+    TextureHandle* handle;
+    u32 rasterSize, paletteSize, auxRasterSize, auxPaletteSize;
+    u32 romOffset = (u32) tex_pool_ROM_START + entry->romStart;
+    s32 handleIdx = gTexturePoolHandles[poolIdx];
+    u8* data;
+
+    if (handleIdx != 0) {
+        return handleIdx;
+    }
+
+    ASSERT_MSG(NextTextureHandleIdx < ARRAY_COUNT(TextureHandles), "Too many textures in one map");
+    ASSERT_MSG(TextureHeapPos + entry->size <= TextureHeapBase + TEXTURE_MEMORY_SIZE, "Ran out of texture memory");
+    handleIdx = NextTextureHandleIdx++;
+    gTexturePoolHandles[poolIdx] = handleIdx;
+    TextureHandlePoolIndices[handleIdx] = poolIdx;
+    handle = &TextureHandles[handleIdx];
+
+    // the header arrives with its images and palettes, which then move down over it, so only the handle keeps it
+    dma_copy((u8*) romOffset, (u8*) romOffset + entry->size, TextureHeapPos);
+    memcpy(&handle->header, TextureHeapPos, sizeof(handle->header));
+    memmove(TextureHeapPos, TextureHeapPos + sizeof(handle->header), entry->size - sizeof(handle->header));
+    data = TextureHeapPos;
+    TextureHeapPos += entry->size - sizeof(handle->header);
+
+    get_texture_sizes(&handle->header, &rasterSize, &paletteSize, &auxRasterSize, &auxPaletteSize);
+    handle->raster = data;
+    handle->palette = paletteSize != 0 ? (PAL_PTR) (data + rasterSize) : nullptr;
+    data += rasterSize + paletteSize;
+    handle->auxRaster = auxRasterSize != 0 ? data : nullptr;
+    handle->auxPalette = auxPaletteSize != 0 ? (PAL_PTR) (data + auxRasterSize) : nullptr;
+
+    handle->gfx = (Gfx*) TextureHeapPos;
+    make_texture_gfx(
+        &handle->header, (Gfx**) &TextureHeapPos, handle->raster, handle->palette, handle->auxRaster,
+        handle->auxPalette, 0, 0, 0, 0
+    );
+    gSPEndDisplayList(((Gfx*) TextureHeapPos));
+    TextureHeapPos += sizeof(Gfx);
+    ASSERT_MSG(TextureHeapPos <= TextureHeapBase + TEXTURE_MEMORY_SIZE, "Ran out of texture memory");
+
+    return handleIdx;
+}
+
+void tex_pool_load_texture(ModelNodeProperty* propertyName) {
+    ModelTreeInfo* treeInfo = &(*gCurrentModelTreeNodeInfo)[TreeIterPos];
+    char* textureName = (char*) propertyName->data.p;
+    s32 poolIdx;
+
+    if (textureName == nullptr) {
+        treeInfo->textureID = 0;
+        return;
+    }
+
+    poolIdx = tex_pool_find(textureName);
+    if (poolIdx < 0) {
+        printf("could not find texture '%s'\n", textureName);
+        treeInfo->textureID = 0;
+        return;
+    }
+
+    treeInfo->textureID = tex_pool_load_entry(poolIdx);
+}
+
+// Loads the textures marked as variants of every texture the models use, so drawing never has to load one.
+static void tex_pool_load_variants(void) {
+    s32 modelTextureCount = NextTextureHandleIdx;
+    s32 handleIdx;
+    s32 i;
+
+    for (handleIdx = 1; handleIdx < modelTextureCount; handleIdx++) {
+        s32 poolIdx = TextureHandlePoolIndices[handleIdx];
+
+        for (i = 1; i <= gTexturePoolVariantCounts[poolIdx]; i++) {
+            tex_pool_load_entry(poolIdx + i);
+        }
+    }
+}
+
+// The handle of the texture `variation` places after a texture in its texture archive, or 0 for no texture if the
+// map didn't load it.
+s32 tex_pool_variant_handle(s32 handleIdx, s32 variation) {
+    s32 poolIdx = TextureHandlePoolIndices[handleIdx] + variation;
+
+    if (variation == 0) {
+        return handleIdx;
+    }
+    if (poolIdx >= gTexturePoolCount) {
+        return 0;
+    }
+    return gTexturePoolHandles[poolIdx];
+}
+
 // load textures used by models, starting from current model
-void load_next_model_textures(ModelNode* model, s32 romOffset, s32 texSize) {
+void load_next_model_textures(ModelNode* model) {
     if (model->type != SHAPE_TYPE_MODEL) {
         if (model->groupData != nullptr) {
             s32 numChildren = model->groupData->numChildren;
@@ -2338,41 +2230,44 @@ void load_next_model_textures(ModelNode* model, s32 romOffset, s32 texSize) {
                 s32 i;
 
                 for (i = 0; i < numChildren; i++) {
-                    load_next_model_textures(model->groupData->childList[i], romOffset, texSize);
+                    load_next_model_textures(model->groupData->childList[i]);
                 }
             }
         }
     } else {
         ModelNodeProperty* propTextureName = get_model_property(model, MODEL_PROP_KEY_TEXTURE_NAME);
         if (propTextureName != nullptr) {
-            load_texture_by_name(propTextureName, romOffset, texSize);
+            tex_pool_load_texture(propTextureName);
         }
     }
     TreeIterPos++;
 }
 
 // load all textures used by models, starting from the root
-void mdl_load_all_textures(ModelNode* rootModel, s32 romOffset, s32 size) {
-    s32 baseOffset = 0;
-
-    // textures are loaded to the upper half of the texture heap when not in the world
-    if (gGameStatusPtr->context != CONTEXT_WORLD) {
-        baseOffset = WORLD_TEXTURE_MEMORY_SIZE;
+void mdl_load_all_textures(ModelNode* rootModel) {
+    // A battle loads code over the bottom of the texture heap, where the map's textures were, so its stage's textures
+    // go above that code. Leaving a battle reloads the map's textures.
+    if (gGameStatusPtr->context == CONTEXT_WORLD) {
+        TextureHeapPos = TextureHeapBase;
+    } else {
+        TextureHeapPos = (void*) ALIGN16((u32) battle_textures_CLASS_VRAM);
     }
 
-    TextureHeapPos = TextureHeapBase + baseOffset;
-
-    if (rootModel != nullptr && romOffset != 0 && size != 0) {
+    if (rootModel != nullptr) {
         s32 i;
 
         for (i = 0; i < ARRAY_COUNT(TextureHandles); i++) {
             TextureHandles[i].gfx = nullptr;
         }
+        // forget only the pool textures the previous load used
+        for (i = 1; i < NextTextureHandleIdx; i++) {
+            gTexturePoolHandles[TextureHandlePoolIndices[i]] = 0;
+        }
+        NextTextureHandleIdx = 1;
 
         TreeIterPos = 0;
-        if (rootModel != nullptr) {
-            load_next_model_textures(rootModel, romOffset, size);
-        }
+        load_next_model_textures(rootModel);
+        tex_pool_load_variants();
     }
 }
 
@@ -3384,14 +3279,12 @@ Model* get_model_from_list_index(s32 listIndex) {
     return (*gCurrentModels)[listIndex];
 }
 
-void load_data_for_models(ModelNode* rootModel, s32 texturesOffset, s32 size) {
+void load_data_for_models(ModelNode* rootModel) {
     Matrix4f mtx;
 
     guMtxIdentF(mtx);
 
-    if (texturesOffset != 0) {
-        mdl_load_all_textures(rootModel, texturesOffset, size);
-    }
+    mdl_load_all_textures(rootModel);
 
     *gCurrentModelTreeRoot = rootModel;
     TreeIterPos = 0;
@@ -4607,7 +4500,7 @@ void* mdl_get_next_texture_address(s32 size) {
 
     offset = (offset >> 6) << 6;
 
-    if (size + offset > WORLD_TEXTURE_MEMORY_SIZE + BATTLE_TEXTURE_MEMORY_SIZE) {
+    if (size + offset > TEXTURE_MEMORY_SIZE) {
         return nullptr;
     } else {
         return TextureHeapBase + offset;

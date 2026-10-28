@@ -129,6 +129,8 @@ let
     {
       nativeBuildInputs = [ pkgs.gnutar pkgs.xz pkgs.coreutils ]
         ++ pkgs.lib.optional (!isDarwin) pkgs.pkgsStatic.patchelf;
+      # The development shell compiles with these, so it builds the same ROM as the toolchain.
+      passthru = { inherit mips-gcc mips-binutils; };
     }
     ''
       dir=papermario-dx-${platformTag}
@@ -206,15 +208,6 @@ let
       # MIPS glibc headers (string.h, stdio.h, etc.) in the sysroot.
       mkdir -p $dir/mips-linux-gnu/sys-include
       cp -rL ${mipsGlibcDev}/include/* $dir/mips-linux-gnu/sys-include/
-
-      # libstdc++ headers, borrowed from the reference cross-compiler for the
-      # same target. GCC derives its C++ search path from the prefix it is run
-      # from, which is its own copy under store/, so they belong in there
-      # rather than alongside it.
-      gccPrefix=$dir/store/$(basename ${mips-gcc})
-      gccVersion=$(ls ${mips-gcc}/lib/gcc/mips-linux-gnu)
-      mkdir -p $gccPrefix/mips-linux-gnu/include/c++/$gccVersion
-      cp -rL ${mipsCrossGcc.cc}/include/c++/*/* $gccPrefix/mips-linux-gnu/include/c++/$gccVersion/
 
       # Python packages (requirements.txt), found via
       # PYTHONPATH rather than baked into the interpreter's own store copy.
@@ -317,8 +310,11 @@ let
       # Linux can extract it. Fixed file order, times, and owners keep the
       # archive the same when its contents are, so the publish step stores
       # an unchanged toolchain only once.
+      # Each -9 thread takes about 674 MiB, so two threads keep it inside a CI
+      # container's memory. The archive is the same however many threads
+      # compress it.
       tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -c $dir \
-        | xz -9 -T0 > $out/papermario-dx-${platformTag}.tar.xz
+        | xz -9 -T2 > $out/papermario-dx-${platformTag}.tar.xz
     '';
 in
 archive

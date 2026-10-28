@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## 2026-10-25
+
+### Maps and stages can use any texture (Clover and [Alex](https://starhaven.dev/bates64.com))
+
+Every texture is now in one shared pool, so a map or battle stage can use textures from any area, and each texture is in the ROM only once. The texture archives in `mapfs/tex` only group textures, and Star Rod's map editor has a dropdown to pick which texture archive to browse.
+
+To update a mod:
+
+- Delete `.texture` from battle stages, `.textureArchive` from maps, and any code that sets `wMapTexName`.
+- Rename any textures that share a name, even across texture archives.
+- Delete the texture archive offset and size from calls to `load_data_for_models` and `mdl_load_all_textures`.
+- Replace `get_asset_offset` with `load_asset_by_name`.
+- Delete calls to `load_texture_variants`.
+
+### Map object names must be unique C identifiers ([Alex](https://starhaven.dev/bates64.com))
+
+The names of models, colliders, zones, and markers must be unique within a map and valid C identifiers. Star Rod renames any that aren't. When two objects share a name, the last one in its tree keeps it and the others get a suffix such as `_1`. Spaces and other characters become underscores.
+
+If a map had duplicate names or names with spaces, check the code that refers to them after building.
+
+## 2026-10-22
+
+### Icon files replace `Icons.xml` ([Alex](https://starhaven.dev/bates64.com))
+
+Every PNG in `icon/` is now an [icon](https://docs.starhaven.dev/papermario-dx/graphics/icons/), so to add one, add a PNG there. No need to list it in an XML table.
+
+### Audio files replace the XML tables ([Alex](https://starhaven.dev/bates64.com))
+
+Each sound effect, song, ambient sound, and bank is its own file, with no need to list them in XML tables. A file's name becomes its constant, so `audio/sfx/shop_bell.xml` becomes `SOUND_SHOP_BELL`.
+
+If your mod adds or changes audio, update it:
+
+- Give each sound effect its own file in `audio/sfx/`, and each envelope its own file in `audio/sfx/envelopes/`. Then delete your copies of the old XML tables.
+- Rename each song and ambient sound file after its sound in snake case, such as `audio/songs/meadow_theme.bgm`.
+- If a song's entry had `bk1`, `bk2`, or `bk3`, open the song in Mamar and choose its instruments again, so that Mamar saves the banks in the `.bgm` file.
+- Replace raw sound, song, and ambient sound numbers with their constants, and `AMBIENT_SEA` with `AMBIENT_BEACH`.
+
+If the build then fails, [Fix audio build errors](https://docs.starhaven.dev/papermario-dx/audio/troubleshooting/) explains each message.
+
+### Fixed typos in names ([Alex](https://starhaven.dev/bates64.com))
+
+Fixed some typos in enum variants and struct field names.
+To update your mod, open a terminal in your mod's folder, such as with **Help > Open Terminal** in Diorama64, and run:
+
+```sh
+python3 tools/rename.py tools/renames/8_typos.txt
+```
+
+On Windows, run `python` instead of `python3`.
+
+### Fixed `USE_PROFILER` ([Alex](https://starhaven.dev/bates64.com))
+
+`USE_PROFILER` in `dx/config.h` had no effect: the profiler was built in whether it was `0` or `1`. This is fixed, so the default of `0` turns the profiler off. To keep using the profiler, set `USE_PROFILER` to `1`.
+
 ## 2026-10-15.1
 
 Fixed build errors on some Windows machines where a broken version of `tar` was installed. ([Alex](https://starhaven.dev/bates64.com))

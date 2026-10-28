@@ -1,57 +1,51 @@
 ---
-title: Fix audio build errors
+title: Troubleshooting
 description: Find the cause of common audio build errors, grouped by the file you're editing.
 sidebar:
   order: 6
 ---
 
-The build checks your audio files and stops at the first problem. It prints a line in the form `file: message`, so the file name tells you where to look. Messages about a table entry start with the kind of entry and its name, such as `Sound 'ShopBell': ...`. This page lists the common messages, grouped by the file you're editing.
+An audio error is in the form `file: message`, so the file name tells you where to look. Messages about a table entry start with the kind of entry and its name, such as `Instrument 'Preset00': ...`.
 
 ## File names
 
 | Message | Cause and fix |
 | --- | --- |
-| `...: this file must be named songs.xml` | Audio files use snake case names. Rename `Songs.xml` to `songs.xml`. The same message appears for `banks.xml`, `ambient_sounds.xml`, `sound_effects.xml`, `presets.xml`, `drums.xml`, `sfx/envelopes.xml`, and `bank/NAME/sound_bank.xml`, each with the new name. |
-| `tables merge by entry; delete entries with delete="true"` | A `.meta` file tries to delete a table file. Delete the entries with `delete="true"` instead. |
+| `...: this file must be named presets.xml` | Audio files use snake case names. Rename `Presets.xml` to `presets.xml`. The same message appears for `drums.xml` and `bank/NAME/sound_bank.xml`, each with the new name. |
+| `the file name must start with a lowercase letter and contain only lowercase letters, digits, and underscores` | Sound effects, envelopes, songs, and ambient sounds get their names from their files. Rename the file, such as `Shop-Bell.xml` to `shop_bell.xml` or `Meadow-Theme.bgm` to `meadow_theme.bgm`. |
+| `Instrument 'NAME': this file replaces the game's whole file, so leave the entry out instead of deleting it` | `audio/presets.xml` and `audio/drums.xml` replace the game's files whole, so `delete="true"` has nothing to remove. Leave the entry out of your copy. The message starts with `Drum` for `audio/drums.xml`. |
 
-## Any table
+## Presets and drums
 
 | Message | Cause and fix |
 | --- | --- |
 | `the name must start with a letter and contain only letters, digits, and underscores` | Rename the entry. A hyphen or space isn't allowed. |
-| `Sound 'NAME' is listed more than once` | The same file has two entries with one name. Keep one. The message starts with `Song`, `AmbientSound`, or `Bank` for those tables. |
-| `Song 'NAME': ID 2 is already used by 'OTHER'` | Two entries use the same `id`. Remove the `id` attribute from your entry to let the build pick a free one. |
-| `Song 'NAME': there are no free IDs` | All 256 song IDs are used. Delete a song you don't use. The same message applies to `AmbientSound`. |
-| `NAME and OTHER both become SOUND_NAME` | Two names produce the same constant, such as `ShopBell` and `Shop_Bell`. Rename one. |
+| `Instrument 'NAME' is listed more than once` | The file has two entries with one name. Keep one. The message starts with `Drum` for `audio/drums.xml`. |
+| `Drum 'NAME': ID 2 is already used by 'OTHER'` | Two entries use the same `id`. Remove the `id` attribute from your entry to give it a free one. |
 
 ## Sound effects
 
 | Message | Cause and fix |
 | --- | --- |
-| `OneShot: no bank in banks.xml has an instrument named NAME` | The `wav` name doesn't match an instrument in an always-loaded bank. Check the spelling, and check that the bank is listed in `audio/banks.xml`. `SetInstrument` in a sequence or in an ambient sequence gives the same message with its own name in front. Samples in a song bank aren't available to sound effects. |
-| `Sound 'NAME': a sound must have exactly one of src, empty, or OneShot` | A `Sound` entry needs one of `src="sfx/..."`, `empty="true"`, or a `OneShot` child. |
-| `Sound 'NAME': a sequence needs a Routing element` | An entry with `src` needs a `Routing` child. |
-| `Sound 'NAME': there is no sfx/NAME.xml file in any layer` | The `src` path doesn't match a file in any layer. |
-| `Sound 'NAME': ID 0009 is already used by 'MenuShowChoice'` | Two sounds use the same `id`. Remove the `id` attribute from your entry. |
-| `Sound 'NAME': ID 00C5 is a direct slot, but the sound has Routing` | The `id` you pinned is a slot that can't hold a sound with `Routing`. Remove the `id` attribute. |
-| `Sound 'NAME': there are no free routed sound slots` | The game has no free ID of the kind the sound needs. Delete a sound you don't use. |
+| `OneShot: no always-loaded bank has an instrument named NAME` | The `wav` name doesn't match an instrument in an always-loaded bank. Check the spelling, and check that no song loads the sample's bank. `SetInstrument` in a sequence or in an ambient sequence gives the same message with its own name in front. Samples in a song bank aren't available to sound effects. |
+| `SoundEffect: SoundEffect must have exactly one of OneShot or Tracks, or nothing for a silent sound` | Give the sound either a `OneShot` element or a `Tracks` element. |
+| `SoundEffect: a sequence needs a Routing element` | A sound with `Tracks` needs a `Routing` element. |
+| `there are no free routed sound slots` | The game has no room for more sounds of this kind. Delete a sound you don't use. |
 
 ## Banks and samples
 
 | Message | Cause and fix |
 | --- | --- |
-| `Bank 'NAME': there is no bank/NAME/sample.wav file in any layer` | The `wav` attribute of an `Instrument` names a file that isn't in the bank's folder in any layer. Add the WAV file. |
-| `Bank 'NAME': there is no bank/NAME/sound_bank.xml file in any layer` | A bank folder needs a `sound_bank.xml` file in at least one layer. |
+| `Bank 'NAME': there is no bank/NAME/sample.wav file in any layer` | The `wav` attribute of an `Instrument` names a file that isn't in the bank's folder. Add the WAV file. |
+| `Bank 'NAME': there is no bank/NAME/sound_bank.xml file in any layer` | A bank folder needs a `sound_bank.xml` file. |
 | `the WAV file has 2 channels; only mono is supported` | Export the sample as mono. |
 | `the WAV file has 24-bit samples; only 16-bit is supported` | Export the sample as 16-bit PCM. The `floating-point WAV files are not supported; use 16-bit PCM` and `the WAV file is not uncompressed PCM; use 16-bit PCM` messages have the same fix. |
 | `Instrument is missing required attribute: keyBase` | Add `keyBase="4800"` to the instrument. |
 | `a bank has at most 16 instruments, but there are 17` | Move instruments to another bank. |
 | `the sample name NAME is also used by bank OTHER` | Rename one of the WAV files and its `wav` attributes. |
-| `a bank name must be 4 characters or fewer: NAME` | Rename the bank's folder, and its entry in `audio/banks.xml` and `audio/songs.xml`. |
-| `Bank 'NAME.bk': there is no bank/NAME directory or bank/NAME.bk file in any layer` | An entry in `audio/banks.xml` doesn't match a folder in `audio/bank/`. The bank's name is its folder name plus `.bk`. |
-| `group 6 index 2 is used by another bank` | Two banks in `audio/banks.xml` share a slot. Remove `group` and `index` from yours, or choose a free slot. |
-| `there are 80 banks, but the engine loads at most 79` | Delete an always-loaded bank you don't need, or move a bank to a song. |
-| `the layer has both this directory and NAME.bk; use only one` | A layer has both `bank/NAME/` and `bank/NAME.bk`. Delete one. |
+| `a bank name must be 4 characters or fewer: NAME` | Rename the bank's folder. |
+| `80 banks are always loaded, but the engine loads at most 79; ...` | Delete a bank you don't need, or load it from a song instead. |
+| `the layer has both this directory and NAME.bk; use only one` | There's both a `bank/NAME/` folder and a `bank/NAME.bk` file. Delete one. |
 | `Song 'NAME': bank NAME is used as an auxiliary bank, but its header is ...` | A bank that a song loads has too many instruments or envelopes. Split it into two banks. |
 | `the archive is ...` | Your audio is too large for the game to load. Use shorter samples or lower sample rates. |
 
@@ -59,14 +53,18 @@ The build checks your audio files and stops at the first problem. It prints a li
 
 | Message | Cause and fix |
 | --- | --- |
-| `Song 'NAME': there is no songs/meadow_theme.bgm file in any layer` | The `bgm` attribute must match a file in `audio/songs/`, including the extension. |
-| `Song 'NAME': there is no bank/NAME directory or bank/NAME.bk file in any layer` | A `bk1`, `bk2`, or `bk3` attribute names a bank that doesn't exist. |
-| `AmbientSound 'NAME': there is no mseq/NAME.xml or mseq/NAME.mseq file in any layer` | The `mseq` attribute must match a file in `audio/mseq/`, without the extension. |
+| `Song 'NAME': there is no bank/NAME directory or bank/NAME.bk file in any layer` | The song loads a bank that doesn't exist. Open the song in the Song Editor and choose its instruments from banks that exist. |
+| `the Mamar metadata at ... can't be read: ...` | The end of the `.bgm` file is damaged. Open the song in the Song Editor and save it again. |
+| `there are more than 256 songs` | Delete a song you don't use. |
+| `mseq: the radio needs all of radio_0 to radio_3, but some are missing` | The radio has four stations, and the game's code uses the radio, so it can't be removed. Restore the missing stations. |
+| `the radio's stations must all play samples from one bank, but they play samples from ...` | Change the `SetInstrument` commands in `audio/mseq/radio_0.xml` to `radio_3.xml` to use samples from one bank. |
+| `the radio's stations must be XML files, so the build can find the bank they play` | Replace each radio station's `.mseq` file with an `.xml` file. |
+| `radio is the name of the radio; rename the file` | `audio/mseq/radio.xml` would give a second `AMBIENT_RADIO`. Rename the file. |
 | `command 12, EndLoop: loop 0 repeats forever without a Delay` | Add a `Delay` inside the loop in the MSEQ file. |
 
 ## Compiler errors after a deletion
 
-If you delete an entry that C code or an EVT script still uses, the audio build succeeds but the compiler reports that the constant is undeclared:
+If you delete an entry that C code or an EVT script still uses, the compiler reports that the constant is undeclared:
 
 ```text
 error: 'SONG_TOAD_TOWN' undeclared (first use in this function)

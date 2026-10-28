@@ -3,6 +3,10 @@
 
 #include "common.h"
 
+/// Size of the memory the current map's or battle stage's textures load into.
+#define TEXTURE_MEMORY_SIZE 0x28000
+extern u8 TextureHeap[TEXTURE_MEMORY_SIZE];
+
 typedef union ModelNodePropertyData {
     s32 s;
     f32 f;
@@ -204,7 +208,6 @@ void update_model_animator(s32);
 void update_model_animator_with_transform(s32 animatorID, Mtx* mtx);
 void set_mdl_custom_gfx_set(Model*, s32, u32);
 ModelNodeProperty* get_model_property(ModelNode* node, ModelPropertyKeys key);
-void load_texture_variants(u32 romOffset, s32 textureID, s32 baseOffset, s32 size);
 s32 step_model_animator(ModelAnimator* animator);
 AnimatorNode* get_animator_node_for_tree_index(ModelAnimator* animator, s32 treeIndex);
 AnimatorNode* get_animator_node_with_id(ModelAnimator* animator, s32 id);
