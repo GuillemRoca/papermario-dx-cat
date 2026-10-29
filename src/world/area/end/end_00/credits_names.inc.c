@@ -112,12 +112,6 @@ CreditsEntry Credits_Names[] = {
         .flags = CREDITS_FLAG_1,
     },
     {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
-    },
-    {
         .next = 40,
     },
     {
@@ -380,12 +374,6 @@ CreditsEntry Credits_Names[] = {
         .flags = CREDITS_FLAG_1,
     },
     {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
-    },
-    {
         .next = 40,
     },
     {
@@ -571,12 +559,6 @@ CreditsEntry Credits_Names[] = {
         .flags = CREDITS_FLAG_1,
     },
     {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
-    },
-    {
         .next = 40,
     },
     {
@@ -651,12 +633,6 @@ CreditsEntry Credits_Names[] = {
         .perCharDelayOut = 0,
         .next = 206,
         .flags = CREDITS_FLAG_1,
-    },
-    {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
     },
     {
         .next = 40,
@@ -898,6 +874,25 @@ CreditsEntry Credits_Names[] = {
         .vanishTime = 30,
         .perCharDelayOut = 0,
         .next = 206,
+        .flags = CREDITS_FLAG_1,
+    },
+    {
+        .next = 40,
+    },
+    {
+        .msgID = MSG_Credits_CatalanTranslator,
+        .posX = STANDARD_POS_X,
+        .posY = 191,
+        .palette = 1,
+        .appearMode = CREDITS_APPEAR_MODE_00,
+        .appearTime = STANDARD_APPEAR_TIME,
+        .perCharDelayIn = 0,
+        .holdMode = CREDITS_HOLD_MODE_00,
+        .holdTime = 130,
+        .vanishMode = CREDITS_VANISH_MODE_00,
+        .vanishTime = 30,
+        .perCharDelayOut = 0,
+        .next = 200,
         .flags = CREDITS_FLAG_1,
     },
     {

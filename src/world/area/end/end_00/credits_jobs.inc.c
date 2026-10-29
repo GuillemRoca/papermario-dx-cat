@@ -67,12 +67,6 @@ CreditsEntry Credits_Jobs[] = {
         .flags = CREDITS_FLAG_1,
     },
     {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
-    },
-    {
         .msgID = MSG_Credits_000D,
         .posX = STANDARD_POS_X,
         .posY = 166,
@@ -116,12 +110,6 @@ CreditsEntry Credits_Jobs[] = {
         .perCharDelayOut = 0,
         .next = 1482,
         .flags = CREDITS_FLAG_1,
-    },
-    {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
     },
     {
         .msgID = MSG_Credits_0010,
@@ -182,12 +170,6 @@ CreditsEntry Credits_Jobs[] = {
         .perCharDelayOut = 0,
         .next = 824,
         .flags = CREDITS_FLAG_1,
-    },
-    {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
     },
     {
         .msgID = MSG_Credits_0013,
@@ -280,12 +262,6 @@ CreditsEntry Credits_Jobs[] = {
         .flags = CREDITS_FLAG_1,
     },
     {
-        .appearMode = CREDITS_APPEAR_MODE_04,
-        .appearTime = 0,
-        .perCharDelayIn = 0,
-        .next = 60,
-    },
-    {
         .msgID = MSG_Credits_001F,
         .posX = STANDARD_POS_X,
         .posY = 170,
@@ -373,6 +349,21 @@ CreditsEntry Credits_Jobs[] = {
         .vanishTime = 30,
         .perCharDelayOut = 0,
         .next = 246,
+        .flags = CREDITS_FLAG_1,
+    },
+    {
+        .msgID = MSG_Credits_CatalanTranslation,
+        .posX = STANDARD_POS_X,
+        .posY = 170,
+        .appearMode = CREDITS_APPEAR_MODE_04,
+        .appearTime = STANDARD_APPEAR_TIME,
+        .perCharDelayIn = 2,
+        .holdMode = CREDITS_HOLD_MODE_00,
+        .holdTime = 170,
+        .vanishMode = CREDITS_VANISH_MODE_00,
+        .vanishTime = 30,
+        .perCharDelayOut = 0,
+        .next = 240,
         .flags = CREDITS_FLAG_1,
     },
     {

@@ -6,7 +6,8 @@
     python3 tools/translation/lint.py --compile --upstream-compiler PATH
 
 Checks, per translated file:
-  - the file and every message ID exist in vanilla, in vanilla order, once each;
+  - the file and every message ID exist in vanilla, in vanilla order, once each; the only new
+    messages are the ones listed in translation/added.txt, after every vanilla message;
   - headers use the syntax both the DX and the pmret/papermario compilers accept;
   - every control code, tag and variable matches the vanilla message exactly,
     so line and page structure are unchanged;
@@ -102,6 +103,7 @@ class Linter:
     translation_dir: Path
     complete: bool = False
     allow_identical: set = field(default_factory=set)
+    added: set = field(default_factory=set)
     findings: List[Finding] = field(default_factory=list)
     stats: Dict[str, FileStats] = field(default_factory=dict)
 
@@ -150,9 +152,21 @@ class Linter:
         by_key = {m.key: (i, m) for i, m in enumerate(vanilla)}
         seen = set()
         last_index = -1
+        added_at = None  # the first added message, which every vanilla message must precede
         for msg in parsed.messages:
             if msg.section != section:
                 self.add("error", name, msg.line, msg.key, f"section {msg.section:02X} doesn't match the file's {section:02X}")
+                continue
+            if msg.key not in by_key and msg.key in self.added:
+                # A new message the project chose to add. The build appends it to the section,
+                # after the vanilla messages, so it can't move any vanilla message's ID.
+                if msg.key in seen:
+                    self.add("error", name, msg.line, msg.key, "message appears twice")
+                    continue
+                seen.add(msg.key)
+                added_at = added_at or msg
+                for p in charset_problems(msg):
+                    self.add("error", name, p.line, msg.key, p.message)
                 continue
             if msg.key not in by_key:
                 self.add(
@@ -167,6 +181,14 @@ class Linter:
                 self.add("error", name, msg.line, msg.key, "message appears twice")
                 continue
             seen.add(msg.key)
+            if added_at is not None:
+                self.add(
+                    "error",
+                    name,
+                    msg.line,
+                    msg.key,
+                    f"comes after the added message {added_at.key}; added messages go after every vanilla one",
+                )
             index, original = by_key[msg.key]
             if index < last_index:
                 self.add("error", name, msg.line, msg.key, "out of vanilla order")
@@ -322,6 +344,12 @@ def main():
         default=ROOT / "translation" / "identical.txt",
         help="message IDs that are meant to stay as in English, one per line",
     )
+    parser.add_argument(
+        "--added",
+        type=Path,
+        default=ROOT / "translation" / "added.txt",
+        help="names of the new messages the translation adds, one per line",
+    )
     parser.add_argument("--complete", action="store_true", help="every file and message must be translated")
     parser.add_argument("--strict", action="store_true", help="fail on warnings too")
     parser.add_argument("--compile", action="store_true", help="also run the DX message compiler on each file")
@@ -343,14 +371,22 @@ def main():
         if not vanilla.is_dir():
             vanilla = ROOT / "reference" / "en"
 
-    allow = set()
-    if args.allow_identical.is_file():
-        for line in args.allow_identical.read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].strip()
-            if line:
-                allow.add(line)
+    def id_list(path: Path) -> set:
+        ids = set()
+        if path.is_file():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    ids.add(line)
+        return ids
 
-    linter = Linter(vanilla, args.translation, complete=args.complete, allow_identical=allow)
+    linter = Linter(
+        vanilla,
+        args.translation,
+        complete=args.complete,
+        allow_identical=id_list(args.allow_identical),
+        added=id_list(args.added),
+    )
     linter.run(args.files)
     compilers = ([DX_COMPILER] if args.compile else []) + args.upstream_compiler
     if compilers:

@@ -34,7 +34,7 @@ VANILLA = """\
 
 
 class LintTest(unittest.TestCase):
-    def lint(self, translated: str, raw: bytes = None, complete=False):
+    def lint(self, translated: str, raw: bytes = None, complete=False, added=()):
         with tempfile.TemporaryDirectory() as tmp:
             vanilla = Path(tmp) / "vanilla"
             ours = Path(tmp) / "ours"
@@ -46,7 +46,7 @@ class LintTest(unittest.TestCase):
                 target.write_bytes(raw)
             else:
                 target.write_text(translated, encoding="utf-8")
-            linter = Linter(vanilla, ours, complete=complete)
+            linter = Linter(vanilla, ours, complete=complete, added=set(added))
             linter.run()
             return linter
 
@@ -86,6 +86,19 @@ class LintTest(unittest.TestCase):
         self.assertTrue(any("out of vanilla order" in e for e in errors))
         self.assertTrue(any("appears twice" in e for e in errors))
         self.assertTrue(any("no vanilla message has this ID" in e for e in errors))
+
+    def test_added_messages(self):
+        first = "#message:18:(Test_0000) {\n\t[Style right]\n\tHola.[BR]\n\tCom va?[BR]\n\t[Wait][End]\n}\n"
+        extra = "#message:18:(Test_Extra) {\n\tUn missatge nou.[End]\n}\n"
+
+        linter = self.lint(first + extra, added=["Test_Extra"])
+        self.assertEqual(self.errors(linter), [])
+
+        linter = self.lint(extra + first, added=["Test_Extra"])
+        self.assertTrue(any("added messages go after every vanilla one" in e for e in self.errors(linter)))
+
+        linter = self.lint(first + extra)
+        self.assertTrue(any("no vanilla message has this ID" in e for e in self.errors(linter)))
 
     def test_overflow(self):
         linter = self.lint(
