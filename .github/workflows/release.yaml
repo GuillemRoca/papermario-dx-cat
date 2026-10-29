@@ -1,0 +1,67 @@
+# Publishes a GitHub release for each tag that has notes in .github/release-notes/<tag>.md
+# and no release yet. It attaches the .bps that the Translation workflow built and checked
+# for the tag's commit (never a ROM), waiting for that build if it's still running.
+#
+# To release: push the tag, then push the notes file.
+name: Release
+
+on:
+  push:
+    branches: [catalan-translation]
+    paths:
+      - .github/release-notes/**
+      - .github/workflows/release.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish the releases that are missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for notes in .github/release-notes/v*.md; do
+            tag=$(basename "$notes" .md)
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "$tag: already released"
+              continue
+            fi
+            if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "$tag: no such tag yet"
+              continue
+            fi
+            # The build of the commit the tag points to now: a moved tag keeps its old runs.
+            commit=$(git rev-parse "refs/tags/$tag^{commit}")
+            run=$(gh run list --workflow translation.yaml --branch "$tag" --commit "$commit" \
+              --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            if [ -z "$run" ]; then
+              echo "::error::$tag: no Translation run for $commit"
+              exit 1
+            fi
+            # Waits for the build if it's still running; fails if it failed.
+            if ! gh run watch "$run" --exit-status --interval 30 >/dev/null; then
+              echo "::error::$tag: Translation run $run for $commit didn't pass"
+              exit 1
+            fi
+            dir=$(mktemp -d)
+            gh run download "$run" --dir "$dir"
+            bps=$(find "$dir" -name "papermario-catala-$tag.bps" -print -quit)
+            if [ -z "$bps" ]; then
+              echo "::error::$tag: run $run has no papermario-catala-$tag.bps"
+              exit 1
+            fi
+            gh release create "$tag" "$bps" --verify-tag \
+              --title "Paper Mario en català ${tag#v}" --notes-file "$notes"
+            echo "$tag: released with $(basename "$bps") from run $run"
+          done
