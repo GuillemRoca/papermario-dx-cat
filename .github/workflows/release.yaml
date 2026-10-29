@@ -1,6 +1,7 @@
 # Publishes a GitHub release for each tag that has notes in .github/release-notes/<tag>.md
-# and no release yet. It attaches the .bps that the Translation workflow built and checked
-# for the tag's commit (never a ROM), waiting for that build if it's still running.
+# and no release yet, and keeps existing releases' notes in step with those files. A new
+# release gets the .bps that the Translation workflow built and checked for the tag's commit
+# (never a ROM), waiting for that build if it's still running.
 #
 # To release: push the tag, then push the notes file.
 name: Release
@@ -34,7 +35,8 @@ jobs:
           for notes in .github/release-notes/v*.md; do
             tag=$(basename "$notes" .md)
             if gh release view "$tag" >/dev/null 2>&1; then
-              echo "$tag: already released"
+              gh release edit "$tag" --notes-file "$notes" >/dev/null
+              echo "$tag: already released; notes updated"
               continue
             fi
             if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
